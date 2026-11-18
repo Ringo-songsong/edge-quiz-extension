@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>单选题练习册</title>
+<style>
+  * {box-sizing:border-box}
+  body {margin:0;background:#f3f3eb;color:#1a322e;font:16px/1.65 "Inter","PingFang SC","Microsoft YaHei",sans-serif}
+  main {max-width:850px;margin:8vh auto;padding:0 26px}
+  header {border-bottom:2px solid #25463c;padding:12px 0 18px} h1 {font:600 clamp(28px,5vw,44px)/1.2 "Source Sans 3","PingFang SC",sans-serif;margin:0}
+  nav {display:flex;flex-wrap:wrap;gap:8px;margin:24px 0} nav a {color:#25463c;text-decoration:none;border:1px solid #aabbb0;border-radius:30px;padding:4px 14px}
+  nav a[aria-current] {background:#25463c;color:white}
+  .sheet {background:#fffef9;border:1px solid #d3d8cc;border-radius:10px;padding:clamp(18px,4vw,36px)} fieldset {border:0;margin:0;padding:0;min-width:0}
+  legend,h2,.prompt {margin:0 0 18px;font-size:22px;font-weight:650;padding:0} .option, .row {display:block;border:1px solid #c8d0c5;border-radius:5px;margin:8px 0;padding:10px 14px;font:inherit;background:white;color:inherit;cursor:pointer;text-align:left;width:100%}
+  .row:has(input:checked),.option[aria-checked=true],.option[data-selected=true]{background:#e3f0e5;border-color:#417354}
+  input {accent-color:#28603e;margin-right:10px} section + section{margin-top:28px}
+  small{display:block;margin:14px 0;color:#54665b} canvas{max-width:100%;height:auto}
+  .diagram {display:block;max-width:100%;height:auto;margin-bottom:14px}
+  .row img {height:48px;width:auto;vertical-align:middle}
+</style>
+<main>
+  <header><h1>单选题练习册</h1></header>
+  <nav aria-label="题型样本">
+    <a href="?case=native">原生单选</a><a href="?case=rows">分行选项</a>
+    <a href="?case=custom">自定义单选</a><a href="?case=buttons">状态按钮</a><a href="?case=images">图片单选</a><a href="?case=canvas">画布题</a>
+  </nav>
+  <div class="sheet" id="exercise"></div>
+  <small>点击 Edge 工具栏里的「作答本页」，即可作答本页单选题。</small>
+</main>
+<template id="native">
+  <form><fieldset><legend>古人说的「望」通常指哪种月相？</legend>
+    <label class="row"><input type="radio" name="phase">新月</label>
+    <label class="row"><input type="radio" name="phase">满月</label>
+    <label class="row"><input type="radio" name="phase">上弦月</label>
+    <label class="row"><input type="radio" name="phase">下弦月</label>
+  </fieldset></form>
+</template>
+<template id="rows">
+  <section><div class="prompt">哪颗行星离太阳最近？</div>
+    <div><div class="row"><input type="radio" name="orbit" id="o1"><label for="o1">水星</label></div>
+    <div class="row"><input type="radio" name="orbit" id="o2"><label for="o2">金星</label></div>
+    <div class="row"><input type="radio" name="orbit" id="o3"><label for="o3">地球</label></div></div>
+  </section>
+  <section><h2>哪颗行星最大？</h2>
+    <label class="row"><input type="radio" name="size">火星</label>
+    <label class="row"><input type="radio" name="size">木星</label>
+  </section>
+</template>
+<template id="custom">
+  <article><h2 id="light">下列哪种颜色的可见光波长最长？</h2>
+    <div role="radiogroup" aria-labelledby="light">
+      <button type="button" class="option" role="radio" aria-checked="false">蓝光</button>
+      <button type="button" class="option" role="radio" aria-checked="false">红光</button>
+      <button type="button" class="option" role="radio" aria-checked="false">绿光</button>
+    </div>
+  </article>
+</template>
+<template id="buttons">
+  <article><h2>单选题 · 一刻钟是多少分钟？</h2>
+    <div>
+      <button type="button" class="option" data-selected="false">10 分钟</button>
+      <button type="button" class="option" data-selected="false">15 分钟</button>
+      <button type="button" class="option" data-selected="false">30 分钟</button>
+    </div>
+  </article>
+</template>
+<template id="images">
+  <fieldset><legend>图中有几个蓝色圆形？</legend>
+    <img class="diagram" width="260" height="80" alt="题图">
+    <label class="row"><input type="radio" name="count">两个</label>
+    <label class="row"><input type="radio" name="count">三个</label>
+    <label class="row"><input type="radio" name="count">四个</label>
+  </fieldset>
+  <section><h2>下列哪张图中的箭头朝左？</h2>
+    <label class="row"><input type="radio" name="direction"><img alt="选项图"></label>
+    <label class="row"><input type="radio" name="direction"><img alt="选项图"></label>
+    <label class="row"><input type="radio" name="direction"><img alt="选项图"></label>
+  </section>
+</template>
+<template id="canvas"><canvas width="680" height="195" aria-label="画布练习题"></canvas></template>
+<script>
+  const kind = new URLSearchParams(location.search).get("case");
+  const mode = ["native","rows","custom","buttons","images","canvas"].includes(kind) ? kind : "native";
+  document.querySelector(`a[href="?case=${mode}"]`).setAttribute("aria-current","page");
+  const exercise = document.getElementById("exercise");
+  exercise.append(document.getElementById(mode).content.cloneNode(true));
+  if (mode === "images") {
+    function draw(image, width, height, paint) {
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "white"; ctx.fillRect(0, 0, width, height);
+      paint(ctx);
+      image.src = canvas.toDataURL("image/png");
+    }
+    draw(exercise.querySelector(".diagram"), 260, 80, ctx => {
+      for (const x of [28, 130, 230]) {
+        ctx.fillStyle = "#1769c5"; ctx.beginPath(); ctx.arc(x, 38, 17, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.fillStyle = "#1769c5"; ctx.fillRect(61, 22, 32, 32);
+      ctx.fillStyle = "#bd4e24"; ctx.beginPath(); ctx.arc(181, 38, 17, 0, Math.PI * 2); ctx.fill();
+    });
+    [...exercise.querySelectorAll(".row img")].forEach((image, index) => {
+      draw(image, 80, 80, ctx => {
+        ctx.translate(40, 40); ctx.rotate([0, -Math.PI / 2, Math.PI][index]);
+        ctx.fillStyle = "#25463c"; ctx.beginPath();
+        ctx.moveTo(29, 0); ctx.lineTo(4, -23); ctx.lineTo(4, -8); ctx.lineTo(-27, -8);
+        ctx.lineTo(-27, 8); ctx.lineTo(4, 8); ctx.lineTo(4, 23); ctx.closePath(); ctx.fill();
+      });
+    });
+  }
+  exercise.addEventListener("click", event => {
+    if (event.target.matches("[data-selected]")) {
+      for (const option of event.target.parentElement.children) {
+        option.dataset.selected = String(option === event.target);
+      }
+      return;
+    }
+    const btn = event.target.closest('[role="radio"]');
+    if (!btn) return;
+    const index = Array.from(btn.parentElement.children).indexOf(btn);
+    // Simulate a framework replacing all of its controls after a brief delay.
+    setTimeout(() => {
+      const group = exercise.querySelector('[role="radiogroup"]');
+      const next = group.cloneNode(true);
+      Array.from(next.children).forEach((option, i) => option.setAttribute("aria-checked", String(index === i)));
+      group.replaceWith(next);
+    }, 120);
+  });
+  if (mode === "canvas") {
+    const ctx = exercise.querySelector("canvas").getContext("2d");
+    ctx.fillStyle = "#23453a"; ctx.font = "22px sans-serif";
+    ["一刻钟相当于多少分钟？", "○  10 分钟", "○  15 分钟", "○  30 分钟"].forEach((line, i) => ctx.fillText(line, 10, 32 + i * 44));
+  }
+</script>
+</html>
