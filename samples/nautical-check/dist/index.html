@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>航海基础测验 · 海图研习室</title><link rel="stylesheet" href="site.css"></head>
+<body>
+<header class="mast"><div class="wrap brand"><span class="flag" aria-hidden="true"></span>海图研习室 <span class="mast-rule"></span><span class="edition">自测题库</span></div></header>
+<main class="wrap">
+<div class="hero">
+  <div><div class="category">航海基础 / 综合练习</div><h1>航海基础测验</h1><p>50 道单选题 <b>·</b> 5 个单元</p></div>
+  <div class="chart" aria-hidden="true"><div class="dial"><i class="needle"></i><span>N</span><span>E</span><span>S</span><span>W</span></div></div>
+</div>
+<div class="layout">
+<aside>
+  <div class="counter"><h2>答题记录</h2><p class="count"><strong id="answered">0</strong><span> / 50 题</span></p>
+  <progress id="meter" value="0" max="50" aria-label="已答题数"></progress>
+  <div class="time-line"><span id="clock-label">作答耗时</span><output id="clock">00:00.0</output></div>
+  <button id="timing" type="button">开始计时</button>
+  <p class="help" id="timing-help">测整页耗时，请先开始计时，再点击扩展。答满 50 题自动停表。</p>
+  <p id="rate" class="help" hidden></p>
+  <button type="button" class="grade" id="grade">核对答案</button>
+  <p id="score" hidden aria-live="polite"></p>
+  <button class="reset" type="button" id="reset">重新开始</button></div>
+  <nav aria-label="单元目录"><h2>单元目录</h2><div id="index"></div></nav>
+</aside>
+<div id="pages"></div>
+</div>
+</main><script type="module" src="quiz.js"></script>
+</body></html>
