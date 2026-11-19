@@ -12,6 +12,7 @@ async function run() {
   const project = path.resolve(__dirname, "..");
   const fixture = spawn("python3", [path.join(__dirname, "model_fixture.py")], {stdio: ["ignore", "pipe", "inherit"]});
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), "single-choice-edge-"));
+  const keyboardTest = process.argv.includes("--keyboard");
   let context;
   try {
     const lines = createInterface({input: fixture.stdout});
@@ -29,7 +30,7 @@ async function run() {
     assert(source.includes("http://127.0.0.1:8766/api/answer"));
     await fs.writeFile(workerFile, source.replace("http://127.0.0.1:8766/api/answer", url + "/api/answer"));
     context = await chromium.launchPersistentContext(profile, {
-      channel: "msedge", headless: true,
+      channel: "msedge", headless: !keyboardTest,
       args: ["--enable-unsafe-extension-debugging"], ignoreDefaultArgs: ["--disable-extensions"]
     });
     const page = context.pages()[0];
@@ -61,13 +62,22 @@ async function run() {
     }
     await page.goto(url + "/?case=native");
     const browserSession = await context.browser().newBrowserCDPSession();
-    const { id } = await browserSession.send("Extensions.loadUnpacked", {path: extension});
+    await browserSession.send("Extensions.loadUnpacked", {path: extension});
     const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
-    assert(await worker.evaluate(() => chrome.action.onClicked.hasListeners()));
-    const targets = await browserSession.send("Target.getTargets", {filter: [{type: "tab"}]});
-    const targetId = targets.targetInfos[0].targetId;
+    const commands = await worker.evaluate(() => chrome.commands.getAll());
+    assert(commands.some(command => command.name === "toggle-answering" && command.shortcut));
+    assert(await worker.evaluate(() => chrome.commands.onCommand.hasListener(handleCommand)));
+    const manifest = await worker.evaluate(() => chrome.runtime.getManifest());
+    assert.equal(manifest.action, undefined);
+    assert.equal(manifest.content_scripts, undefined);
+    assert.deepEqual(manifest.host_permissions, ["http://127.0.0.1/*"]);
     const visit = mode => page.goto(url + "/?case=" + mode);
-    const trigger = () => browserSession.send("Extensions.triggerAction", {id, targetId});
+    // Headless CDP key events reach the renderer, not Edge's browser accelerators.
+    // Invoke the registered listener with the same active tab on our loopback fixture.
+    const trigger = () => worker.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
+      void handleCommand("toggle-answering", tab);
+    });
     await worker.evaluate(() => {
       const originalFetch = globalThis.fetch;
       globalThis.sent = [];
@@ -84,8 +94,8 @@ async function run() {
       };
     });
     const requests = () => worker.evaluate(() => globalThis.sent.length);
-    async function until(predicate, message) {
-      const deadline = Date.now() + 6500;
+    async function until(predicate, message, timeout = 6500) {
+      const deadline = Date.now() + timeout;
       while (Date.now() < deadline) {
         if (await predicate()) return;
         await new Promise(resolve => setTimeout(resolve, 45));
@@ -103,9 +113,8 @@ async function run() {
       });
     }
     async function settle() {
-      await until(finished, "Toolbar run did not finish");
+      await until(finished, "Shortcut run did not finish");
       assert.equal(await page.locator("aside, [role=dialog], [role=status], dialog").count(), 0);
-      assert.equal(await worker.evaluate(() => chrome.action.getBadgeText({})), "");
     }
     async function answer() {
       await trigger();
@@ -142,6 +151,35 @@ async function run() {
       });
       return status.result;
     });
+
+    if (keyboardTest) {
+      // localhost is a different host from the permanent 127.0.0.1 bridge grant.
+      await page.goto("http://localhost:" + port + "/?case=rows");
+      await page.bringToFront();
+      assert(await worker.evaluate(async () => {
+        const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
+        try {
+          await chrome.scripting.executeScript({target: {tabId: tab.id}, func: () => true});
+          return false;
+        } catch {
+          return true;
+        }
+      }));
+      await hold(secondStem);
+      console.log("Press the registered shortcut in the test window to START.");
+      await page.waitForFunction(() => document.querySelector("#o1").checked, null, {timeout: 120000});
+      await waitHeld();
+      console.log("Press the shortcut again to PAUSE.");
+      await until(finished, "Timed out waiting for the pause shortcut", 120000);
+      await release();
+      await until(async () => await pending() === 0, "Paused reply not drained");
+      assert.deepEqual(await checkedLabels(page), ["水星"]);
+      console.log("Press the shortcut again to RESUME.");
+      await until(() => page.getByRole("radio", {name: "木星"}).isChecked(),
+        "Timed out waiting for the resume shortcut", 120000);
+      await settle();
+      console.log("PASS native shortcut grants activeTab, starts, pauses and resumes");
+    }
 
     await visit("images");
     await page.locator("#exercise .diagram").evaluate(img => {
