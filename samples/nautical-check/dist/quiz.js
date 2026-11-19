@@ -40,7 +40,7 @@ function start(manual) {
   origin = manual ? "手动开始计时" : "首个勾选起计时";
   byId("clock-label").textContent = origin;
   byId("timing").textContent = "结束计时";
-  byId("timing-help").textContent = manual ? "包含点击扩展和等待首题的时间。" : "此次计时从首次勾选开始，不含首题等待时间。";
+  byId("timing-help").textContent = manual ? "包含按下扩展快捷键和等待首题的时间。" : "此次计时从首次勾选开始，不含首题等待时间。";
   timerId = setInterval(drawClock, 100);
   drawClock();
 }

@@ -1,10 +1,15 @@
 {
   "manifest_version": 3,
   "name": "作答本页",
-  "description": "点击图标让所选模型作答本页未答的文字和图片单选题。再次点击停止，再点继续。",
-  "version": "0.7.0",
+  "description": "使用快捷键启动、暂停或继续作答当前页的文字和图片单选题。",
+  "version": "0.8.0",
   "permissions": ["activeTab", "scripting"],
   "host_permissions": ["http://127.0.0.1/*"],
   "background": {"service_worker": "background.js"},
-  "action": {"default_title": "作答本页"}
+  "commands": {
+    "toggle-answering": {
+      "suggested_key": {"default": "Ctrl+Shift+S", "mac": "MacCtrl+Shift+S"},
+      "description": "启动、暂停或继续作答当前页"
+    }
+  }
 }
