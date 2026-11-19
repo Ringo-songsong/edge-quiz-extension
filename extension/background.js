@@ -1,5 +1,5 @@
-chrome.action.onClicked.addListener(async (tab) => {
-  if (!tab.id) return;
+async function handleCommand(command, tab) {
+  if (command !== "toggle-answering" || tab?.id == null) return;
   try {
     await chrome.scripting.executeScript({
       target: {tabId: tab.id},
@@ -8,7 +8,9 @@ chrome.action.onClicked.addListener(async (tab) => {
   } catch {
     // Restricted pages and closed tabs have no document to process.
   }
-});
+}
+
+chrome.commands.onCommand.addListener(handleCommand);
 
 const answerUrl = "http://127.0.0.1:8766/api/answer";
 
