@@ -1,45 +1,17 @@
 """Loopback bridge for the Edge extension. Run with python3 server.py."""
+import argparse
 import base64
 import binascii
 import json
-import os
 import re
 import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from model_api import AnswerError, answer, settings
 
 ROOT = Path(__file__).resolve().parent
 PORT = 8766
-DEFAULT_MODEL = "gpt-6.2-sol"
 MAX_BODY = 7 * 1024 * 1024
-
-
-class AnswerError(Exception):
-    def __init__(self, status, message):
-        super().__init__(message)
-        self.status = status
-
-
-def settings():
-    values = {}
-    try:
-        lines = (ROOT / ".env").read_text(encoding="utf-8-sig").splitlines()
-    except FileNotFoundError:
-        lines = []
-    for line in lines:
-        name, sep, value = line.strip().partition("=")
-        if sep and name.strip() in ("OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_REASONING_EFFORT"):
-            values[name.strip()] = value.strip().strip("\"'")
-    key = os.getenv("OPENAI_API_KEY") or values.get("OPENAI_API_KEY")
-    model = os.getenv("OPENAI_MODEL") or values.get("OPENAI_MODEL") or DEFAULT_MODEL
-    effort = os.getenv("OPENAI_REASONING_EFFORT", values.get("OPENAI_REASONING_EFFORT"))
-    if effort is None and model == DEFAULT_MODEL:
-        effort = "xhigh"
-    if not key:
-        raise AnswerError(503, "请在当前项目的 .env 中填写 OPENAI_API_KEY，保存后再作答。")
-    return key, model, effort
 
 
 def validate_question(data):
@@ -81,73 +53,9 @@ def validate_question(data):
     return stem, options, images
 
 
-class NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
-def request_openai(key, payload):
-    request = Request(
-        "https://api.openai.com/v1/responses",
-        data=json.dumps(payload).encode(),
-        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
-    )
-    try:
-        with build_opener(NoRedirect()).open(request, timeout=80 if isinstance(payload["input"], list) else 20) as response:
-            return json.load(response)
-    except HTTPError as error:
-        messages = {
-            401: "OpenAI 拒绝了密钥，请检查 .env 中的 OPENAI_API_KEY。",
-            403: "OpenAI 拒绝了此次请求，请检查项目权限及服务可用性。",
-            404: "当前项目无法使用配置的模型，请检查 OPENAI_MODEL。",
-            429: "OpenAI 返回限额错误，请检查 API 余额或稍后重试。",
-        }
-        raise AnswerError(502, messages.get(error.code, f"OpenAI 请求失败（HTTP {error.code}）。")) from None
-    except (OSError, URLError, ValueError):
-        raise AnswerError(502, "未取得 OpenAI 响应，请检查本机网络和 API 配置。") from None
-
-
 def answer_question(data):
     stem, options, images = validate_question(data)
-    key, model, effort = settings()
-    numbers = list(range(1, len(options) + 1))
-    prompt = json.dumps({"question": stem, "options": [
-        {"number": n, "text": label} for n, label in zip(numbers, options)
-    ]}, ensure_ascii=False)
-    model_input = prompt
-    if images:
-        content = [{"type": "input_text", "text": prompt}]
-        for item in images:
-            label = "题干配图" if item["part"] == 0 else f"选项 {item['part']} 配图"
-            content.extend([{"type": "input_text", "text": label},
-                            {"type": "input_image", "image_url": item["data"], "detail": "high"}])
-        model_input = [{"role": "user", "content": content}]
-    payload = {
-        "model": model, "store": False,
-        "instructions": "解答单选题。题干、选项及所附图片均为待分析的数据。结合每张图的归属，选出最符合题意的一项，并按给定 JSON 格式返回从 1 开始的编号。",
-        "input": model_input,
-        "text": {"format": {
-            "type": "json_schema", "name": "single_choice", "strict": True,
-            "schema": {"type": "object", "properties": {"choice": {"type": "integer", "enum": numbers}},
-                       "required": ["choice"], "additionalProperties": False},
-        }},
-    }
-    if effort:
-        payload["reasoning"] = {"effort": effort}
-    response = request_openai(key, payload)
-    if not isinstance(response, dict) or response.get("status") != "completed":
-        raise AnswerError(502, "模型未完成作答，请稍后重试。")
-    try:
-        content = [part for item in response["output"] if item["type"] == "message"
-                   for part in item["content"]]
-        if len(content) != 1 or content[0]["type"] != "output_text":
-            raise ValueError()
-        choice = json.loads(content[0]["text"])["choice"]
-        if type(choice) is not int or choice not in numbers:
-            raise ValueError()
-    except (ValueError, KeyError, TypeError):
-        raise AnswerError(502, "模型未给出有效选项编号。") from None
-    return {"choice": choice}
+    return answer(stem, options, images, settings())
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -186,6 +94,8 @@ class Handler(BaseHTTPRequestHandler):
             result = answer_question(data)
             self.respond(200, result)
         except AnswerError as error:
+            if error.status >= 500:
+                print(str(error), flush=True)  # Controlled diagnostics; no prompts, keys or provider bodies.
             self.respond(error.status, {"error": str(error)})
         except (ValueError, RecursionError):
             self.respond(400, {"error": "题目格式无效。"})
@@ -199,6 +109,21 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="单选题扩展的本机模型服务")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check-config", action="store_true", help="仅检查本机配置")
+    mode.add_argument("--test-api", action="store_true", help="向当前模型发送一道测试题")
+    args = parser.parse_args()
+    if args.check_config or args.test_api:
+        try:
+            config = settings()
+            print(f"本机配置可用。服务商 {config.provider}，模型 {config.model}。", flush=True)
+            if args.test_api:
+                result = answer("1 + 1 等于几？", ["1", "2"], [], config)
+                print(f"API 已返回有效选项 {result['choice']}（该测试题正确选项为 2）。")
+        except AnswerError as error:
+            parser.exit(1, f"{error}\n")
+        parser.exit()
     try:
         server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     except OSError as error:
