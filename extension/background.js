@@ -19,7 +19,7 @@ async function getAnswer(stem, options, images) {
       method: "POST",
       headers: {"Content-Type": "application/json", "X-Edge-Quiz": "1"},
       body: JSON.stringify({stem, options, images}),
-      redirect: "error", credentials: "omit", signal: AbortSignal.timeout(images?.length ? 90000 : 25000)
+      redirect: "error", credentials: "omit", signal: AbortSignal.timeout(90000)
     });
   } catch (error) {
     throw new Error(error.name === "TimeoutError" ? "本机服务响应超时，请重试。"
