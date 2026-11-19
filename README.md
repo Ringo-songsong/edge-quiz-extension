@@ -4,12 +4,24 @@
 
 适合有标准单选控件的在线练习、看图选择题，以及测试自建题库的答题耗时。能否适配一个新网站，主要取决于网页如何标记题干、选项和选中状态。扩展没有课程网址白名单，也无需预先录入该网站的题目。
 
+## 让 AI 帮你安装
+
+把仓库链接发给能操作你电脑的 AI 助手，可以直接说：“请下载并安装这个 Edge 扩展。下载好后问我用哪家的 API，打开本机页面让我填密钥，然后帮我检查配置。”
+
+**给安装助手：** 下载或解压后请继续按 [安装助手指引](AGENTS.md) 操作。先运行 `python3 server.py --check-config`。首次安装时主动询问用户使用哪家 API；已有配置时询问是否沿用。确定厂家后，在用户本机运行相应的命令，例如 Claude 使用：
+
+```sh
+python3 configure.py --provider anthropic
+```
+
+配置工具会打开一个只在本机回环地址监听的临时页面。用户在密码框输入该厂家的 API Key 并点「保存本机配置」，工具就会写好对应字段、保留其他厂家的设置并关闭。密钥无需发到聊天里。助手随后再次运行 `--check-config`，再继续加载扩展。页面链接 10 分钟有效；浏览器未自动打开时，可在运行工具的同一台电脑打开终端显示的链接。仅能在云端运行的助手可把命令交给用户在本机执行。GitHub 下载 ZIP 本身不会执行程序，助手是否主动询问取决于它是否读取安装指引。
+
 ## 安装和首次运行
 
-需要桌面版 Microsoft Edge、Python 3.7 或以上版本，以及可用的 OpenAI、DeepSeek、Kimi 或其他兼容模型服务。本机服务只使用 Python 标准库，日常使用无需安装 Node.js 或 Python 依赖。
+需要桌面版 Microsoft Edge、Python 3.7 或以上版本，以及可用的 OpenAI、Claude、DeepSeek、Kimi 或其他兼容模型服务。本机服务只使用 Python 标准库，日常使用无需安装 Node.js 或 Python 依赖。
 
 1. [下载项目 ZIP](https://github.com/Ringo-songsong/edge-quiz-extension/archive/refs/heads/main.zip) 并解压，或克隆本仓库。打开解压后能看见 `server.py`、`extension/` 和 `.env.example` 的目录。
-2. 在这个目录打开终端，将 `.env.example` 复制为 `.env`。macOS / Linux 执行 `cp .env.example .env`，Windows PowerShell 执行 `Copy-Item .env.example .env`。用文本编辑器打开 `.env`，按下面「选择模型服务」中的一组示例填写并保存。已配置 OpenAI 的用户可沿用旧文件。
+2. 在这个目录打开终端，运行 `python3 configure.py --provider anthropic`。把 `anthropic` 换成你的服务商即可，其他可选值有 `openai`、`deepseek`、`kimi`、`custom`。Windows 将 `python3` 换为 `py -3`。也可以手动把 `.env.example` 复制为 `.env`，再按下面的一组示例填写。已有配置可直接沿用。
 3. 先用 `python3 server.py --check-config` 检查配置，再执行 `python3 server.py`（Windows 可用 `py -3 server.py`）。让终端在作答期间持续运行。打开[本机练习页](http://127.0.0.1:8766/)即可确认服务已启动。
 4. 在 Edge 地址栏输入 `edge://extensions/`，开启「开发人员模式」，点「加载解压缩的扩展」，**选择解压目录下的 `extension` 文件夹**。它直接包含 `manifest.json`。可在工具栏的「扩展」菜单中将「作答本页」固定到工具栏。
 5. 打开[双题练习页](http://127.0.0.1:8766/?case=rows)，点击「作答本页」图标。两道题应依次选中「水星」和「木星」。这一步会实际调用 API，可同时验证密钥、网络和网页勾选。
@@ -17,6 +29,28 @@
 ## 选择模型服务
 
 只需将下面一组配置写入项目根目录的 `.env`。密钥来自对应服务商的 **API 开放平台**，模型 ID 以你的 API 账户可用列表为准。切换时修改 `MODEL_PROVIDER` 并保存，再启动一轮作答。
+
+### Claude（Anthropic Messages API）
+
+```dotenv
+MODEL_PROVIDER=anthropic
+ANTHROPIC_API_KEY=替换为你的Anthropic密钥
+ANTHROPIC_MODEL=claude-sonnet-5-5
+```
+
+官方预设调用 `https://api.anthropic.com/v1/messages`。使用 Claude Console 的 API 密钥，模型 ID 可换成你账户有权限的型号。如密钥要求指定工作区，另加 `ANTHROPIC_WORKSPACE_ID`。文字、题干配图和图片选项均可发送，图片以带归属标签的 Base64 内容块传入。[Claude API 文档](https://platform.claude.com/docs/en/api/messages/create) · [模型列表](https://platform.claude.com/docs/en/about-claude/models/overview)
+
+如果密钥来自提供 **Claude Messages 格式的第三方**，请选择 `custom`，填写该服务自己的地址和密钥。下面使用占位域名示范：
+
+```dotenv
+MODEL_PROVIDER=custom
+CUSTOM_API_FORMAT=anthropic
+CUSTOM_BASE_URL=https://gateway.example/v1
+CUSTOM_MODEL=替换为网关提供的模型ID
+CUSTOM_API_KEY=替换为网关发放的密钥
+```
+
+该示例会访问 `https://gateway.example/v1/messages`，使用 `x-api-key` 和 `anthropic-version: 2023-06-01`。基础地址也可以是完整的 `/v1/messages` 端点。要求云平台 IAM 签名等其他认证的接口，需要对应的网关。
 
 ### DeepSeek
 
@@ -49,7 +83,7 @@ CUSTOM_MODEL=替换为服务中已加载的模型ID
 CUSTOM_API_KEY=
 ```
 
-先启动模型服务并加载模型，再填入它显示的基础地址和模型 ID。云端服务请填写服务商提供的 HTTPS 地址和密钥；本机回环服务免认证时可留空。基础地址应保留服务商要求的版本路径（如 `/v1`）。程序会补上 `/chat/completions`，也接受已经带有该路径的完整端点。仅提供 Anthropic Messages 或 Gemini 原生协议的服务，需要另外提供兼容入口。
+先启动模型服务并加载模型，再填入它显示的基础地址和模型 ID。云端服务请填写服务商提供的 HTTPS 地址和密钥；本机回环服务免认证时可留空。自定义接口默认使用 `CUSTOM_API_FORMAT=chat`，保留基础地址的版本路径并补上 `/chat/completions`，也接受完整端点。Claude Messages 格式使用前面的 `anthropic` 配置。仅提供 Gemini 原生协议的服务需要兼容入口。
 
 ### OpenAI 和旧配置
 
@@ -99,7 +133,7 @@ OPENAI_REASONING_EFFORT=xhigh
 | 找到属于同一题的控件 | 在当前页面及可访问的同源 iframe 中遍历 DOM（浏览器表示网页结构的节点树）。原生 `input[type=radio]` 按所属表单和 `name` 分组；自定义 `role=radio` 按最近的 `radiogroup` 分组。对于同组使用 `aria-pressed` 或 `data-selected` 的按钮，还要求题干有「单选」等标记。 |
 | 配对题干和选项 | 从控件的共同容器向上查找 `legend`、关联标题或附近唯一的题干。选项文字来自 `label`、`aria-labelledby`、`aria-label` 或相邻选项行。发现其他题组时停止向上搜索；题目重复到无法唯一定位时跳过。 |
 | 处理图片 | 从题干和每个选项各自的 DOM 范围读取 `img` 的实际像素，标明「题干配图」或「选项 N 配图」。浏览器先等比缩放，优先编码为 PNG，较大图片转 JPEG。每题最多 12 张，长边最多 1800 像素。图片无法读取或超限时跳过该题。 |
-| 请求模型 | 扩展后台把一题发到本机 `POST /api/answer`。Python 服务验证输入，按配置逐题调用 OpenAI Responses API 或 Chat Completions 接口。有图时将实际图片和归属标签一起发送。OpenAI 路径使用严格 JSON Schema；兼容接口通过提示要求 JSON。本机服务在两条路径上都校验整数编号及其范围。 |
+| 请求模型 | 扩展后台把一题发到本机 `POST /api/answer`。Python 服务验证输入，按配置逐题调用 OpenAI Responses、Anthropic Messages 或 Chat Completions。有图时将实际图片与归属标签一同发送。OpenAI 路径使用严格 JSON Schema；其他路径通过提示要求 JSON。本机服务统一校验整数编号及其范围。 |
 | 点击并核验 | 请求前、模型返回后都检查题目是否仍可唯一定位且未作答。点击后回读整组控件的 `checked` 或相应状态属性，在最长 1.5 秒内确认只有目标项连续选中至少 200 毫秒。确认失败就继续下一题，不反复点击。 |
 
 **识别控件由浏览器里的 JavaScript 完成，选择答案由配置的模型完成。** 更换模型可能影响正确率和耗时；遇到网页结构不受支持的题型，需要调整识别代码。核验成功表示网页已勾选目标项，答案是否正确仍需对照题意或评分结果。

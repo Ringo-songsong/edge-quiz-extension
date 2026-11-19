@@ -34,6 +34,31 @@ async function run() {
     });
     const page = context.pages()[0];
     page.setDefaultTimeout(5000);
+    // Exercise a native form submission, including the actual browser Origin header.
+    const setupEnv = {...process.env, QUIZ_ENV_FILE: path.join(profile, "setup.env")};
+    delete setupEnv.MODEL_PROVIDER;
+    delete setupEnv.ANTHROPIC_API_KEY;
+    delete setupEnv.ANTHROPIC_MODEL;
+    const setup = spawn("python3", [path.join(project, "configure.py"), "--provider", "anthropic", "--no-browser"],
+      {env: setupEnv, stdio: ["ignore", "pipe", "inherit"]});
+    const setupLines = createInterface({input: setup.stdout});
+    try {
+      const setupDone = once(setup, "exit");
+      for await (const line of setupLines) {
+        if (!line.startsWith("http://127.0.0.1:")) continue;
+        await page.goto(line);
+        await page.getByLabel("API Key").fill("browser-test-key");
+        await page.getByRole("button", {name: "保存本机配置"}).click();
+        await page.getByText("配置已保存。可以关闭此页，返回安装助手继续。").waitFor();
+        break;
+      }
+      assert.equal((await setupDone)[0], 0);
+      assert((await fs.readFile(setupEnv.QUIZ_ENV_FILE, "utf8")).includes("MODEL_PROVIDER=anthropic"));
+      console.log("PASS first-run local configuration in Edge");
+    } finally {
+      setupLines.close();
+      setup.kill();
+    }
     await page.goto(url + "/?case=native");
     const browserSession = await context.browser().newBrowserCDPSession();
     const { id } = await browserSession.send("Extensions.loadUnpacked", {path: extension});
