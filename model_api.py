@@ -14,6 +14,7 @@ DEFAULT_MODEL = "gpt-6.2-sol"
 # forward credentials for a different service.
 PRESETS = {
     "openai": ("OPENAI", "https://api.openai.com/v1/responses", DEFAULT_MODEL),
+    "anthropic": ("ANTHROPIC", "https://api.anthropic.com/v1/messages", "claude-sonnet-5-5"),
     "deepseek": ("DEEPSEEK", "https://api.deepseek.com/chat/completions", "deepseek-flash"),
     "kimi": ("MOONSHOT", "https://api.moonshot.cn/v1/chat/completions", "kimi-k3.1-pro"),
     "custom": ("CUSTOM", "", ""),
@@ -35,6 +36,13 @@ class Config:
     model: str
     key: str = field(repr=False)
     effort: str = ""
+    custom_format: str = "chat"
+    workspace: str = ""
+
+    @property
+    def protocol(self):
+        return {"openai": "responses", "anthropic": "anthropic",
+                "custom": self.custom_format}.get(self.provider, "chat")
 
 
 def file_values():
@@ -53,6 +61,10 @@ def file_values():
                                "或设置 QUIZ_ENV_FILE 指向可读取的文件。") from None
     except (OSError, UnicodeError):
         raise AnswerError(503, "本机配置文件无法读取，请检查文件路径并用 UTF-8 保存。") from None
+    return parse_env(lines)
+
+
+def parse_env(lines):
     values = {}
     for line in lines:
         name, sep, value = line.strip().partition("=")
@@ -64,15 +76,25 @@ def file_values():
 def settings():
     values = file_values()
     values.update(os.environ)
+    return config_from(values)
+
+
+def config_from(values):
     provider = values.get("MODEL_PROVIDER", "openai").strip().lower()
+    if provider == "claude":
+        provider = "anthropic"
     if provider not in PRESETS:
-        raise AnswerError(503, "MODEL_PROVIDER 应为 openai、deepseek、kimi 或 custom。")
+        raise AnswerError(503, "MODEL_PROVIDER 应为 openai、anthropic、deepseek、kimi 或 custom。")
     prefix, endpoint, default_model = PRESETS[provider]
     model = values.get(prefix + "_MODEL", "").strip() or default_model
     key_name = prefix + "_API_KEY"
     key = values.get(key_name, "").strip()
     key_optional = False
+    custom_format = "chat"
     if provider == "custom":
+        custom_format = values.get("CUSTOM_API_FORMAT", "chat").strip().lower()
+        if custom_format not in ("chat", "anthropic"):
+            raise AnswerError(503, "CUSTOM_API_FORMAT 应为 chat 或 anthropic。")
         base = values.get("CUSTOM_BASE_URL", "").strip().rstrip("/")
         try:
             url = urlsplit(base)
@@ -85,7 +107,11 @@ def settings():
         except ValueError:
             raise AnswerError(503, "CUSTOM_BASE_URL 需要 HTTPS 地址或本机回环 HTTP 地址，"
                                    "地址中请勿放入密钥、查询参数或片段。") from None
-        endpoint = base if url.path.endswith("/chat/completions") else base + "/chat/completions"
+        if custom_format == "anthropic":
+            endpoint = base if url.path.endswith("/v1/messages") else (
+                base + "/messages" if url.path.endswith("/v1") else base + "/v1/messages")
+        else:
+            endpoint = base if url.path.endswith("/chat/completions") else base + "/chat/completions"
         key_optional = loopback
     if not model:
         raise AnswerError(503, f"请按服务商控制台填写 {prefix}_MODEL 模型 ID。")
@@ -94,7 +120,10 @@ def settings():
     if key and (not key.isascii() or not key.isprintable() or any(c.isspace() for c in key)):
         raise AnswerError(503, f"{key_name} 格式无效，请替换示例文字并检查空格。")
     effort = values.get("OPENAI_REASONING_EFFORT", "xhigh" if model == DEFAULT_MODEL else "")
-    return Config(provider, endpoint, model, key, effort if provider == "openai" else "")
+    workspace = values.get("ANTHROPIC_WORKSPACE_ID", "").strip() if provider == "anthropic" else ""
+    if workspace and not re.fullmatch(r"[A-Za-z0-9_-]+", workspace):
+        raise AnswerError(503, "ANTHROPIC_WORKSPACE_ID 格式无效。")
+    return Config(provider, endpoint, model, key, effort if provider == "openai" else "", custom_format, workspace)
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -104,7 +133,13 @@ class NoRedirect(HTTPRedirectHandler):
 
 def request_model(config, payload):
     headers = {"Content-Type": "application/json"}
-    if config.key:
+    if config.protocol == "anthropic":
+        headers["anthropic-version"] = "2023-06-01"
+        if config.key:
+            headers["x-api-key"] = config.key
+        if config.workspace:
+            headers["anthropic-workspace-id"] = config.workspace
+    elif config.key:
         headers["Authorization"] = "Bearer " + config.key
     request = Request(config.endpoint, data=json.dumps(payload).encode(), headers=headers)
     try:
@@ -135,23 +170,30 @@ def request_model(config, payload):
         raise AnswerError(502, f"{config.provider} 返回了无效 JSON，请核对 API 地址。") from None
 
 
+def image_part(protocol, data):
+    if protocol == "responses":
+        return {"type": "input_image", "image_url": data, "detail": "high"}
+    if protocol == "anthropic":
+        prefix, encoded = data.split(",", 1)
+        return {"type": "image", "source": {"type": "base64", "media_type": prefix[5:-7], "data": encoded}}
+    return {"type": "image_url", "image_url": {"url": data}}
+
+
 def answer(stem, options, images, config):
     numbers = list(range(1, len(options) + 1))
     prompt = json.dumps({"question": stem, "options": [
         {"number": n, "text": label} for n, label in zip(numbers, options)
     ]}, ensure_ascii=False)
-    responses = config.provider == "openai"
+    protocol = config.protocol
     message = prompt
     if images:
-        text_type = "input_text" if responses else "text"
+        text_type = "input_text" if protocol == "responses" else "text"
         message = [{"type": text_type, "text": prompt}]
         for item in images:
             label = "题干配图" if item["part"] == 0 else f"选项 {item['part']} 配图"
-            picture = ({"type": "input_image", "image_url": item["data"], "detail": "high"} if responses
-                       else {"type": "image_url", "image_url": {"url": item["data"]}})
-            message.extend([{"type": text_type, "text": label}, picture])
+            message.extend([{"type": text_type, "text": label}, image_part(protocol, item["data"])])
     user_message = {"role": "user", "content": message}
-    if responses:
+    if protocol == "responses":
         payload = {"model": config.model, "store": False, "instructions": INSTRUCTIONS,
                    "input": [user_message] if images else prompt,
                    "text": {"format": {"type": "json_schema", "name": "single_choice", "strict": True,
@@ -159,24 +201,32 @@ def answer(stem, options, images, config):
                                        "required": ["choice"], "additionalProperties": False}}}}
         if config.effort:
             payload["reasoning"] = {"effort": config.effort}
+    elif protocol == "anthropic":
+        payload = {"model": config.model, "max_tokens": 2048, "system": INSTRUCTIONS,
+                   "messages": [user_message]}
     else:
         payload = {"model": config.model, "messages": [
             {"role": "system", "content": INSTRUCTIONS}, user_message], "stream": False}
     response = request_model(config, payload)
     try:
-        if responses:
+        if protocol == "responses":
             if response["status"] != "completed":
                 raise ValueError()
             parts = [part for item in response["output"] if item["type"] == "message" for part in item["content"]]
             if len(parts) != 1 or parts[0]["type"] != "output_text":
                 raise ValueError()
             raw = parts[0]["text"]
+        elif protocol == "anthropic":
+            if response["type"] != "message" or response["stop_reason"] != "end_turn":
+                raise ValueError()
+            raw = "".join(block["text"] for block in response["content"] if block["type"] == "text")
         else:
             item = response["choices"][0]
             if item["finish_reason"] != "stop" or item["message"].get("refusal"):
                 raise ValueError()
             raw = item["message"]["content"]
-            # Some compatible models wrap their complete JSON answer in Markdown.
+        if protocol != "responses":
+            # Some models wrap their complete JSON answer in Markdown.
             fence = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", raw, re.S | re.I)
             if fence:
                 raw = fence.group(1)
