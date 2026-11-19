@@ -7,11 +7,12 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import model_api
 import server
 
 
-def simulate_response(key, payload):
-    assert key == "fixture" and payload["store"] is False
+def simulate_response(config, payload):
+    assert config.key == "fixture" and payload["store"] is False
     assert payload["model"] == "gpt-6.2-sol" and payload["reasoning"] == {"effort": "xhigh"}
     frames = []
     if isinstance(payload["input"], list):
@@ -58,8 +59,8 @@ def simulate_response(key, payload):
 
 
 if __name__ == "__main__":
-    server.settings = lambda: ("fixture", "gpt-6.2-sol", "xhigh")
-    server.request_openai = simulate_response
+    server.settings = lambda: model_api.Config("openai", "", "gpt-6.2-sol", "fixture", "xhigh")
+    model_api.request_model = simulate_response
     with server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler) as httpd:
         print(httpd.server_port, flush=True)
         httpd.serve_forever()
